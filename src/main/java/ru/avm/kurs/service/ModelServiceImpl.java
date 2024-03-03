@@ -19,23 +19,27 @@ public class ModelServiceImpl implements ModelService{
     private final ModelQueueService clerkQueue;
     @Override
     public String startModel(StartModelDTO initData) {
-        for (int i = 0; i < 100; i++) {
-            ModelActor modelActor = new ModelActor("actor" + (i+1), randomBetween(1, 2));
-            try {
-                Thread.sleep(100 * randomBetween(0, 10));
-                commonQueue.getExecutor().execute(commonProducer(modelActor));
-                commonQueue.getExecutor().submit(commonConsumer());
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
+        new Thread(player()).start();
         return UUID.randomUUID().toString();
     }
 
     @Override
     public String stopModel(String guidModel) {
         return guidModel;
+    }
+    private Runnable player(){
+        return () -> {
+            for (int i = 0; i < 100; i++) {
+                ModelActor modelActor = new ModelActor("actor" + (i+1), randomBetween(1, 2));
+                try {
+                    Thread.sleep(100 * randomBetween(0, 10));
+                    commonQueue.getExecutor().execute(commonProducer(modelActor));
+                    commonQueue.getExecutor().submit(commonConsumer());
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
     }
 
     private Runnable commonProducer(ModelActor actor){
