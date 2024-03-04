@@ -54,7 +54,6 @@ public class ModelServiceImpl implements ModelService{
         lock.unlock();
         return corelation.keys().nextElement();
     }
-
     @Override
     public String stopModel(String guidModel) {
         corelation.get(guidModel).interrupt();
