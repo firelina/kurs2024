@@ -8,4 +8,5 @@ import lombok.Data;
 public class BankomatStat {
     private String title;
     private Integer serviced;
+    private Boolean isBusy;
 }

@@ -15,9 +15,9 @@ import ru.avm.kurs.stat.ModelStatistics;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
 
 @Component
 @Slf4j
@@ -27,14 +27,15 @@ public class ModelServiceImpl implements ModelService{
     private ModelQueueService bankomatQueue;
     private ModelQueueService clerkQueue;
     private final Lock lock = new ReentrantLock();
+    private final Lock clerkBeforeLock = new ReentrantLock();
+    private final Lock clerkAfterLock = new ReentrantLock();
+    private final Lock bankomatBeforeLock = new ReentrantLock();
+    private final Lock bankomatAfterLock = new ReentrantLock();
     private final ConcurrentHashMap<String, Thread> corelation = new ConcurrentHashMap<>();
     private ModelStatistics modelStatistics;
     @Autowired
     public ModelServiceImpl(ModelQueueConfig modelQueueConfig) {
         this.modelQueueConfig = modelQueueConfig;
-//        commonQueue = modelQueueConfig.commonQueue();
-//        bankomatQueue = modelQueueConfig.bankomatQueue();
-//        clerkQueue = modelQueueConfig.clerkQueue();
     }
 
     @Override
@@ -45,7 +46,6 @@ public class ModelServiceImpl implements ModelService{
             commonQueue = modelQueueConfig.commonQueue();
             bankomatQueue = modelQueueConfig.bankomatQueue();
             clerkQueue = modelQueueConfig.clerkQueue();
-            log.info(commonQueue.toString());
             Thread thread = new Thread(player());
             String guid = UUID.randomUUID().toString();
             corelation.put(guid, thread);
@@ -70,8 +70,8 @@ public class ModelServiceImpl implements ModelService{
 
     @Override
     public ModelStatistics getStats() {
-        modelStatistics.setBankomats(modelStatistics.getBankomatMap().entrySet().stream().map(i -> new BankomatStat(i.getKey(), i.getValue())).collect(Collectors.toList()));
-        modelStatistics.setClerks(modelStatistics.getClerkMap().entrySet().stream().map(i -> new ClerkStat(i.getKey(), i.getValue())).collect(Collectors.toList()));
+//        modelStatistics.setBankomats(modelStatistics.getBankomatMap().entrySet().stream().map(i -> new BankomatStat(i.getKey(), i.getValue().getServiced(), i.getValue().getIsBusy())).collect(Collectors.toList()));
+//        modelStatistics.setClerks(modelStatistics.getClerkMap().entrySet().stream().map(i -> new ClerkStat(i.getKey(), i.getValue().getServiced(), i.getValue().getIsBusy())).collect(Collectors.toList()));
         return modelStatistics;
     }
 
@@ -79,10 +79,9 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             int i = 0;
             while(!Thread.currentThread().isInterrupted() && i < 100) {
-//                for (int i = 0; i < 100; i++) {
                     ModelAgent modelAgent = new ModelAgent("actor" + (i + 1), randomBetween(1, 2));
                     try {
-                        Thread.sleep(100 * randomBetween(0, 10));
+                        Thread.sleep(100L * randomBetween(1, 5));
                         commonQueue.getExecutor().execute(commonProducer(modelAgent));
                         commonQueue.getExecutor().submit(commonConsumer());
                     } catch (InterruptedException e) {
@@ -90,7 +89,16 @@ public class ModelServiceImpl implements ModelService{
                         throw new ModelException(e.getMessage());
                     }
                     i++;
-//                }
+            }
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                throw new ModelException(e.getMessage());
+            } finally {
+                corelation.clear();
+                commonQueue.getExecutor().shutdown();
+                bankomatQueue.getExecutor().shutdown();
+                clerkQueue.getExecutor().shutdown();
             }
         };
     }
@@ -125,6 +133,7 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             try {
                 bankomatQueue.getBuffer().put(actor);
+                modelStatistics.setSizeBankomatQueue(((ThreadPoolExecutor) bankomatQueue.getExecutor()).getQueue().size());
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
             }
@@ -136,8 +145,21 @@ public class ModelServiceImpl implements ModelService{
                 ModelAgent bankomatActor = bankomatQueue.getBuffer().take();
                 ModelConsumer modelConsumer = new ModelConsumerImpl("bankomat");
                 modelConsumer.consume(bankomatActor);
-                Thread.sleep(1000 * randomBetween(1, 2));
-                modelStatistics.getBankomatMap().put(Thread.currentThread().getName(), modelStatistics.getBankomatMap().getOrDefault(Thread.currentThread().getName(), 0)+1);
+                bankomatBeforeLock.lock();
+                final BankomatStat bankomatBeforeStat = modelStatistics.getBankomatMap().getOrDefault(Thread.currentThread().getName(), new BankomatStat(Thread.currentThread().getName(), 0, true));
+                bankomatBeforeStat.setIsBusy(true);
+                modelStatistics.getBankomatMap().put(Thread.currentThread().getName(), bankomatBeforeStat);
+                bankomatBeforeLock.unlock();
+
+                Thread.sleep(1000L * randomBetween(1, 3));
+
+                bankomatAfterLock.lock();
+                final BankomatStat bankomatAfterStat = modelStatistics.getBankomatMap().get(Thread.currentThread().getName());
+                bankomatAfterStat.setIsBusy(false);
+                bankomatAfterStat.setServiced(bankomatAfterStat.getServiced() + 1);
+                modelStatistics.getBankomatMap().put(Thread.currentThread().getName(), bankomatAfterStat);
+                modelStatistics.setSizeBankomatQueue(((ThreadPoolExecutor) bankomatQueue.getExecutor()).getQueue().size());
+                bankomatAfterLock.unlock();
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
             }
@@ -147,6 +169,7 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             try {
                 clerkQueue.getBuffer().put(actor);
+                modelStatistics.setSizeClerktQueue(((ThreadPoolExecutor) clerkQueue.getExecutor()).getQueue().size());
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
             }
@@ -158,8 +181,21 @@ public class ModelServiceImpl implements ModelService{
                 ModelAgent clerkActor = clerkQueue.getBuffer().take();
                 ModelConsumer modelConsumer = new ModelConsumerImpl("clerk");
                 modelConsumer.consume(clerkActor);
-                Thread.sleep(1000 * randomBetween(2, 5));
-                modelStatistics.getClerkMap().put(Thread.currentThread().getName(), modelStatistics.getClerkMap().getOrDefault(Thread.currentThread().getName(), 0)+1);
+                clerkBeforeLock.lock();
+                final ClerkStat clerkBeforeStat = modelStatistics.getClerkMap().getOrDefault(Thread.currentThread().getName(), new ClerkStat(Thread.currentThread().getName(), 0, true));
+                clerkBeforeStat.setIsBusy(true);
+                modelStatistics.getClerkMap().put(Thread.currentThread().getName(), clerkBeforeStat);
+                clerkBeforeLock.unlock();
+
+                Thread.sleep(1000L * randomBetween(3, 5));
+
+                clerkAfterLock.lock();
+                final ClerkStat clerkAfterStat = modelStatistics.getClerkMap().get(Thread.currentThread().getName());
+                clerkAfterStat.setIsBusy(false);
+                clerkAfterStat.setServiced(clerkAfterStat.getServiced() + 1);
+                modelStatistics.getClerkMap().put(Thread.currentThread().getName(), clerkAfterStat);
+                modelStatistics.setSizeClerktQueue(((ThreadPoolExecutor) clerkQueue.getExecutor()).getQueue().size());
+                clerkAfterLock.unlock();
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
             }

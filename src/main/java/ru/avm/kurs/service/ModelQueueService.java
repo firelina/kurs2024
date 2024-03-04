@@ -22,7 +22,6 @@ public class ModelQueueService {
         else {
             final ThreadFactory threadFactory = new ThreadFactoryBuilder()
                     .setNameFormat(title + "-%d")
-//                .setDaemon(true)
                     .build();
             executor = Executors.newFixedThreadPool(countThread, threadFactory);
         }

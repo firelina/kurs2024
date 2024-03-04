@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class ModelConsumerInitDTO {
     private String prefTitle;
+    private Integer count;
     private Integer firstDelay;
     private Integer secondDelay;
     private Integer thirdDelay;

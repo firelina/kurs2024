@@ -8,4 +8,5 @@ import lombok.Data;
 public class ClerkStat {
     private String title;
     private Integer serviced;
+    private Boolean isBusy;
 }

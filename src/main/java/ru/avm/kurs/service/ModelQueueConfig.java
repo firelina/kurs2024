@@ -16,7 +16,7 @@ public class ModelQueueConfig {
     @Bean(autowireCandidate = false)
     @Scope("request")
     public ModelQueueService bankomatQueue(){
-        return new ModelQueueService(2, "bankomat");
+        return new ModelQueueService(3, "bankomat");
     }
     @Bean(autowireCandidate = false)
     @Scope("request")
