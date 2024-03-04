@@ -2,19 +2,25 @@ package ru.avm.kurs.service;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Scope;
+
+import java.util.function.Function;
 
 @Configuration
 public class ModelQueueConfig {
-    @Bean
+    @Bean(autowireCandidate = false)
+    @Scope("request")
     public ModelQueueService commonQueue(){
-        return new ModelQueueService(1);
+        return new ModelQueueService(1, "common");
     }
-    @Bean
+    @Bean(autowireCandidate = false)
+    @Scope("request")
     public ModelQueueService bankomatQueue(){
-        return new ModelQueueService(2);
+        return new ModelQueueService(2, "bankomat");
     }
-    @Bean
+    @Bean(autowireCandidate = false)
+    @Scope("request")
     public ModelQueueService clerkQueue(){
-        return new ModelQueueService(5);
+        return new ModelQueueService(5, "clerk");
     }
 }
