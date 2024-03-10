@@ -8,4 +8,10 @@ import lombok.Data;
 public class ModelAgent {
     private String title;
     private Integer state;
+    private Long startTime = System.currentTimeMillis();
+
+    public ModelAgent(String title, Integer state) {
+        this.title = title;
+        this.state = state;
+    }
 }

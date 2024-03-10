@@ -12,10 +12,17 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Data
 public class ModelStatistics {
-    private ConcurrentHashMap<String, BankomatStat> bankomatMap = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<String, ClerkStat> clerkMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<String, BankomatStat> bankomatMap;
+    private ConcurrentHashMap<String, ClerkStat> clerkMap;
     private List<BankomatStat> bankomats;
     private List<ClerkStat> clerks;
-    private Integer sizeBankomatQueue;
-    private Integer sizeClerktQueue;
+    private Integer sizeBankomatQueue = 0;
+    private Integer sizeClerktQueue = 0;
+    private Integer bankomatNotServed = 0;
+    private Integer clerkNotServed = 0;
+
+    public ModelStatistics() {
+        bankomatMap = new ConcurrentHashMap<>();
+        clerkMap = new ConcurrentHashMap<>();
+    }
 }

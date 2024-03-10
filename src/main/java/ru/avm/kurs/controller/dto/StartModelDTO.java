@@ -6,6 +6,6 @@ import java.util.List;
 
 @Data
 public class StartModelDTO {
-    private ModelAgentInitDTO modelAgentInitDTO;
-    private List<ModelConsumerInitDTO> consumenrs;
+    private ModelAgentInitDTO agent;
+    private List<ModelConsumerInitDTO> consumers;
 }

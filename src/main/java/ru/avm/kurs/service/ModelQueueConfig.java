@@ -10,17 +10,17 @@ import java.util.function.Function;
 public class ModelQueueConfig {
     @Bean(autowireCandidate = false)
     @Scope("request")
-    public ModelQueueService commonQueue(){
-        return new ModelQueueService(1, "common");
+    public ModelQueueService commonQueue(Integer countThreads, String title){
+        return new ModelQueueService(countThreads, title);
     }
     @Bean(autowireCandidate = false)
     @Scope("request")
-    public ModelQueueService bankomatQueue(){
-        return new ModelQueueService(3, "bankomat");
+    public ModelQueueService bankomatQueue(Integer countThreads, String title){
+        return new ModelQueueService(countThreads, title);
     }
     @Bean(autowireCandidate = false)
     @Scope("request")
-    public ModelQueueService clerkQueue(){
-        return new ModelQueueService(5, "clerk");
+    public ModelQueueService clerkQueue(Integer countThreads, String title){
+        return new ModelQueueService(countThreads, title);
     }
 }
