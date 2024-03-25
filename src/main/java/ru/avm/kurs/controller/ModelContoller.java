@@ -3,10 +3,14 @@ package ru.avm.kurs.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import ru.avm.kurs.controller.dto.PetriAgentDTO;
 import ru.avm.kurs.controller.dto.ResultDTO;
 import ru.avm.kurs.controller.dto.StartModelDTO;
 import ru.avm.kurs.service.ModelService;
 import ru.avm.kurs.stat.ModelStatistics;
+
+import java.util.List;
+
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
 @RequiredArgsConstructor
@@ -27,6 +31,11 @@ public class ModelContoller {
     @GetMapping("/stat")
     public ResponseEntity<ModelStatistics> stats(){
         return ResponseEntity.ok(modelService.getStats());
+    }
+
+    @GetMapping("/petri")
+    public ResponseEntity<List<PetriAgentDTO>> petris(){
+        return ResponseEntity.ok(modelService.getPetri());
     }
 
 }

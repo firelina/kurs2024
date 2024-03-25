@@ -5,17 +5,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import ru.avm.kurs.controller.dto.ModelAgentInitDTO;
 import ru.avm.kurs.controller.dto.ModelConsumerInitDTO;
+import ru.avm.kurs.controller.dto.PetriAgentDTO;
 import ru.avm.kurs.controller.dto.StartModelDTO;
 import ru.avm.kurs.exception.ModelException;
 import ru.avm.kurs.model.ModelAgent;
 import ru.avm.kurs.model.ModelConsumer;
 import ru.avm.kurs.model.ModelConsumerImpl;
-import ru.avm.kurs.stat.BankomatStat;
-import ru.avm.kurs.stat.ClerkStat;
+import ru.avm.kurs.stat.SourceStat;
 import ru.avm.kurs.stat.ModelStatistics;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -43,6 +44,7 @@ public class ModelServiceImpl implements ModelService{
     private ModelStatistics modelStatistics;
     private Integer bankomatTimeLimit;
     private Integer clerkTimeLimit;
+    private Map<String, PetriAgentDTO> petris;
     @Autowired
     public ModelServiceImpl(ModelQueueConfig modelQueueConfig, DelayServiceConfig delayServiceConfig) {
         this.modelQueueConfig = modelQueueConfig;
@@ -53,6 +55,7 @@ public class ModelServiceImpl implements ModelService{
     public String startModel(StartModelDTO initData) {
         lock.lock();
         if(corelation.isEmpty()) {
+            petris = new ConcurrentHashMap();
             if(Objects.isNull(initData)) {
                 initData = new StartModelDTO();
                 initData.setAgent(new ModelAgentInitDTO("common", 1, 0, 2));
@@ -70,7 +73,7 @@ public class ModelServiceImpl implements ModelService{
                     bankomatDelay = delayServiceConfig.bankomatDelay(i.getFirstDelay(), i.getSecondDelay(), i.getThirdDelay());
                     bankomatTimeLimit = i.getTimeLimit();
                     for (int j = 0; j < i.getCount(); j++) {
-                        modelStatistics.getBankomatMap().put(i.getPrefTitle() + "-" + j, new BankomatStat(i.getPrefTitle() + "-" + j, 0, false));
+                        modelStatistics.getBankomatMap().put(i.getPrefTitle() + "-" + j, new SourceStat(i.getPrefTitle() + "-" + j, 0, false));
                     }
                 }
                 if (i.getState() == 2) {
@@ -78,7 +81,7 @@ public class ModelServiceImpl implements ModelService{
                     clerkDelay = delayServiceConfig.clerktDelay(i.getFirstDelay(), i.getSecondDelay(), i.getThirdDelay());
                     clerkTimeLimit = i.getTimeLimit();
                     for (int j = 0; j < i.getCount(); j++) {
-                        modelStatistics.getClerkMap().put(i.getPrefTitle() + "-" + j, new ClerkStat(i.getPrefTitle() + "-" + j, 0, false));
+                        modelStatistics.getClerkMap().put(i.getPrefTitle() + "-" + j, new SourceStat(i.getPrefTitle() + "-" + j, 0, false));
                     }
                 }
             });
@@ -107,21 +110,37 @@ public class ModelServiceImpl implements ModelService{
     @Override
     public ModelStatistics getStats() {
         modelStatistics.setBankomats(modelStatistics.getBankomatMap().entrySet().stream()
-                .map(i -> new BankomatStat(i.getKey(), i.getValue().getServiced(), i.getValue().getIsBusy()))
+                .map(i -> new SourceStat(i.getKey(), i.getValue().getServiced(), i.getValue().getIsBusy()))
                 .sorted((obj1, obj2) -> obj1.getTitle().compareToIgnoreCase(obj2.getTitle()))
                 .collect(Collectors.toList()));
         modelStatistics.setClerks(modelStatistics.getClerkMap().entrySet().stream()
-                .map(i -> new ClerkStat(i.getKey(), i.getValue().getServiced(), i.getValue().getIsBusy()))
+                .map(i -> new SourceStat(i.getKey(), i.getValue().getServiced(), i.getValue().getIsBusy()))
                 .sorted((obj1, obj2) -> obj1.getTitle().compareToIgnoreCase(obj2.getTitle()))
                 .collect(Collectors.toList()));
         return modelStatistics;
+    }
+
+    @Override
+    public List<PetriAgentDTO> getPetri() {
+        return petris.entrySet().stream()
+                .map(i -> i.getValue())
+                .sorted(Comparator.comparingInt(obj -> Integer.valueOf(obj.getTitle().split(" ")[1]))
+                )
+                .collect(Collectors.toList());
     }
 
     private Runnable player(){
         return () -> {
             int i = 0;
             while(!Thread.currentThread().isInterrupted() && i < 100) {
-                ModelAgent modelAgent = new ModelAgent("agent " + (i + 1), randomBetween(1, 2));
+                String title = "agent " + (i + 1);
+                ModelAgent modelAgent = new ModelAgent(title, randomBetween(1, 2));
+
+                petris.put(title, new PetriAgentDTO(title));
+                PetriAgentDTO petri = petris.get(title);
+                petri.getStates().add(1);
+                petris.put(title, petri);
+
                 commonDelay.delay();
                 commonQueue.getExecutor().execute(commonProducer(modelAgent));
                 commonQueue.getExecutor().submit(commonConsumer());
@@ -144,6 +163,11 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             try {
                 commonQueue.getBuffer().put(actor);
+
+                PetriAgentDTO petri = petris.get(actor.getTitle());
+                petri.getStates().add(2);
+                petris.put(actor.getTitle(), petri);
+
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
             }
@@ -153,11 +177,24 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             try {
                 ModelAgent commonActor = commonQueue.getBuffer().take();
+
+                PetriAgentDTO petri = petris.get(commonActor.getTitle());
+                petri.getStates().add(3);
+                petris.put(commonActor.getTitle(), petri);
+
                 if(commonActor.getState() == 1){
+
+                    PetriAgentDTO petriB = petris.get(commonActor.getTitle());
+                    petriB.getStates().add(4);
+                    petris.put(commonActor.getTitle(), petriB);
+
                     bankomatQueue.getExecutor().execute(bankomatProducer(commonActor));
                     bankomatQueue.getExecutor().submit(bankomatConsumer());
                 }
                 else {
+                    PetriAgentDTO petriC = petris.get(commonActor.getTitle());
+                    petriC.getStates().add(9);
+                    petris.put(commonActor.getTitle(), petriC);
                     clerkQueue.getExecutor().execute(clerkProducer(commonActor));
                     clerkQueue.getExecutor().submit(clerkConsumer());
                 }
@@ -170,6 +207,9 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             try {
                 bankomatQueue.getBuffer().put(actor);
+                PetriAgentDTO petri = petris.get(actor.getTitle());
+                petri.getStates().add(5);
+                petris.put(actor.getTitle(), petri);
                 modelStatistics.setSizeBankomatQueue(((ThreadPoolExecutor) bankomatQueue.getExecutor()).getQueue().size());
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
@@ -180,17 +220,27 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             try {
                 bankomatBeforeLock.lock();
-                ModelAgent bankomatActor = bankomatQueue.getBuffer().take();
-                if((bankomatTimeLimit - ((System.currentTimeMillis() - bankomatActor.getStartTime())/1000)) <=0){
+                ModelAgent agent = bankomatQueue.getBuffer().take();
+                if((bankomatTimeLimit - ((System.currentTimeMillis() - agent.getStartTime())/1000)) <=0){
                     modelStatistics.setBankomatNotServed(modelStatistics.getBankomatNotServed() + 1);
                     modelStatistics.setSizeBankomatQueue(((ThreadPoolExecutor) bankomatQueue.getExecutor()).getQueue().size());
+
+                    PetriAgentDTO petri = petris.get(agent.getTitle());
+                    petri.getStates().add(6);
+                    petris.put(agent.getTitle(), petri);
+
                     bankomatBeforeLock.unlock();
                     return;
                 }
-                ModelConsumer modelConsumer = new ModelConsumerImpl(Thread.currentThread().getName());
-                modelConsumer.consume(bankomatActor);
 
-                final BankomatStat bankomatBeforeStat = modelStatistics.getBankomatMap().getOrDefault(Thread.currentThread().getName(), new BankomatStat(Thread.currentThread().getName(), 0, true));
+                PetriAgentDTO petri = petris.get(agent.getTitle());
+                petri.getStates().add(7);
+                petris.put(agent.getTitle(), petri);
+
+                ModelConsumer modelConsumer = new ModelConsumerImpl(Thread.currentThread().getName());
+                modelConsumer.consume(agent);
+
+                final SourceStat bankomatBeforeStat = modelStatistics.getBankomatMap().getOrDefault(Thread.currentThread().getName(), new SourceStat(Thread.currentThread().getName(), 0, true));
                 bankomatBeforeStat.setIsBusy(true);
                 modelStatistics.getBankomatMap().put(Thread.currentThread().getName(), bankomatBeforeStat);
                 bankomatBeforeLock.unlock();
@@ -198,11 +248,16 @@ public class ModelServiceImpl implements ModelService{
                 bankomatDelay.delay();
 
                 bankomatAfterLock.lock();
-                final BankomatStat bankomatAfterStat = modelStatistics.getBankomatMap().get(Thread.currentThread().getName());
+                final SourceStat bankomatAfterStat = modelStatistics.getBankomatMap().get(Thread.currentThread().getName());
                 bankomatAfterStat.setIsBusy(false);
                 bankomatAfterStat.setServiced(bankomatAfterStat.getServiced() + 1);
                 modelStatistics.getBankomatMap().put(Thread.currentThread().getName(), bankomatAfterStat);
                 modelStatistics.setSizeBankomatQueue(((ThreadPoolExecutor) bankomatQueue.getExecutor()).getQueue().size());
+
+                PetriAgentDTO petriAfterServiced = petris.get(agent.getTitle());
+                petriAfterServiced.getStates().add(8);
+                petris.put(agent.getTitle(), petriAfterServiced);
+
                 bankomatAfterLock.unlock();
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
@@ -213,6 +268,11 @@ public class ModelServiceImpl implements ModelService{
         return () -> {
             try {
                 clerkQueue.getBuffer().put(actor);
+
+                PetriAgentDTO petri = petris.get(actor.getTitle());
+                petri.getStates().add(10);
+                petris.put(actor.getTitle(), petri);
+
                 modelStatistics.setSizeClerktQueue(((ThreadPoolExecutor) clerkQueue.getExecutor()).getQueue().size());
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
@@ -227,24 +287,39 @@ public class ModelServiceImpl implements ModelService{
                 if((clerkTimeLimit - ((System.currentTimeMillis() - clerkActor.getStartTime())/1000)) <= 0){
                     modelStatistics.setClerkNotServed(modelStatistics.getClerkNotServed() + 1);
                     modelStatistics.setSizeClerktQueue(((ThreadPoolExecutor) clerkQueue.getExecutor()).getQueue().size());
+
+                    PetriAgentDTO petri = petris.get(clerkActor.getTitle());
+                    petri.getStates().add(11);
+                    petris.put(clerkActor.getTitle(), petri);
+
                     clerkBeforeLock.unlock();
                     return;
                 }
+
+                PetriAgentDTO petri = petris.get(clerkActor.getTitle());
+                petri.getStates().add(12);
+                petris.put(clerkActor.getTitle(), petri);
+
                 ModelConsumer modelConsumer = new ModelConsumerImpl(Thread.currentThread().getName());
                 modelConsumer.consume(clerkActor);
 
-                final ClerkStat clerkBeforeStat = modelStatistics.getClerkMap().getOrDefault(Thread.currentThread().getName(), new ClerkStat(Thread.currentThread().getName(), 0, true));
+                final SourceStat clerkBeforeStat = modelStatistics.getClerkMap().getOrDefault(Thread.currentThread().getName(), new SourceStat(Thread.currentThread().getName(), 0, true));
                 clerkBeforeStat.setIsBusy(true);
                 modelStatistics.getClerkMap().put(Thread.currentThread().getName(), clerkBeforeStat);
                 clerkBeforeLock.unlock();
 
                 clerkDelay.delay();
                 clerkAfterLock.lock();
-                final ClerkStat clerkAfterStat = modelStatistics.getClerkMap().get(Thread.currentThread().getName());
+                final SourceStat clerkAfterStat = modelStatistics.getClerkMap().get(Thread.currentThread().getName());
                 clerkAfterStat.setIsBusy(false);
                 clerkAfterStat.setServiced(clerkAfterStat.getServiced() + 1);
                 modelStatistics.getClerkMap().put(Thread.currentThread().getName(), clerkAfterStat);
                 modelStatistics.setSizeClerktQueue(((ThreadPoolExecutor) clerkQueue.getExecutor()).getQueue().size());
+
+                PetriAgentDTO petriAgentAfterServiced = petris.get(clerkActor.getTitle());
+                petri.getStates().add(13);
+                petris.put(clerkActor.getTitle(), petriAgentAfterServiced);
+
                 clerkAfterLock.unlock();
             } catch (InterruptedException e) {
                 throw new ModelException(e.getMessage());
